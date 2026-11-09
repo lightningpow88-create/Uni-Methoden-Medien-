@@ -68,6 +68,13 @@ header .q { font-size: 22px; color: var(--muted); flex: 1; }
 .lc .tag.g { background: var(--good-soft); color: var(--good); } .lc .tag.b { background: var(--bad-soft); color: var(--bad); }
 .lc .tag.w { background: var(--plate); color: var(--muted); }
 .lc.done { cursor: pointer; }
+.lc.flip { animation: flip .6s ease-in-out; }
+@keyframes flip { 0% { transform: perspective(600px) rotateY(0); } 50% { transform: perspective(600px) rotateY(90deg); } 100% { transform: perspective(600px) rotateY(0); } }
+.lc.ok { border-color: var(--right); border-width: 4px; } .lc.no { border-color: var(--wrong); border-width: 4px; }
+.lc { overflow: visible; }
+.mark { position: absolute; top: -14px; right: -14px; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 22px; color: #fff; box-shadow: 0 3px 8px var(--shadow); }
+.lc.ok .mark { background: var(--right); } .lc.no .mark { background: var(--wrong); }
 .lc.g { border-color: var(--good); } .lc.b { border-color: var(--bad); }
 .stem { position: absolute; width: 4px; background: var(--ink); opacity: .35; border-radius: 2px; transition: all .7s cubic-bezier(.2,.8,.2,1); }
 .dot { position: absolute; width: 18px; height: 18px; border-radius: 50%; background: var(--ink); top: 420px; margin-left: -9px; transition: left .7s cubic-bezier(.2,.8,.2,1); z-index: 1; }
@@ -143,12 +150,13 @@ const src = id => "data:image/svg+xml;charset=utf-8," + encodeURIComponent(IMG[i
 const ANCHOR = 300, CW = 150, CH = 140;
 
 
-// Die ersten 5 Karten tragen die Kernaussage, die 5 Reservekarten vertiefen sie.
+// Die ersten 6 Karten tragen die Kernaussage, die 5 Reservekarten vertiefen sie.
 const MAIN = [
   { id: "knoppers", name: "Knoppers", portion: "1 Waffelschnitte (25 g)", kcal: 137 },
   { id: "avocado", name: "Avocado-Brot", portion: "2 Scheiben Vollkornbrot mit ½ Avocado", kcal: 470 },
   { id: "pingui", name: "Kinder Pingui", portion: "1 Stück (30 g)", kcal: 135 },
   { id: "hummus", name: "Vollkornbrötchen mit Hummus", portion: "1 Brötchen mit Hummus und Gemüse", kcal: 330 },
+  { id: "muesli", name: "Müsli mit Milch und Banane", portion: "50 g Haferflocken, 200 ml Milch, ½ Banane", kcal: 340 },
   { id: "schokocroissant", name: "Schokocroissant", portion: "1 Stück vom Bäcker (ca. 75 g)", kcal: 250 },
 ];
 const RESERVE = [
@@ -164,9 +172,7 @@ const RESERVE = [
   { id: "cerealien", name: "Schoko-Cerealien mit Milch", portion: "1 große Schüssel (80 g) mit 300 ml Milch", kcal: 500, dge: false,
     calc: "Schoko-Cerealien (80 g) ca. 310 kcal + Vollmilch (300 ml) ca. 190 kcal",
     why: "Viel Zucker (ca. 20 g) und kaum Vollkorn. Besser ist Müsli ohne Zucker." },
-  { id: "muesli", name: "Müsli mit Milch und Banane", portion: "50 g Haferflocken, 200 ml Milch, ½ Banane", kcal: 340, dge: true,
-    calc: "Haferflocken ca. 185 kcal + Milch ca. 95 kcal + ½ Banane ca. 60 kcal",
-    why: "Mehr Energie als das Käsebrötchen, aber Vollkorn, Milch und Obst liefern Ballaststoffe und machen lange satt." },
+  { id: "cola", name: "Cola", portion: "1 Flasche (0,5 l)", kcal: 210 },
 ];
 
 const $ = s => document.querySelector(s);
@@ -279,20 +285,47 @@ function drawCard() {
 }
 
 function solveNext() {
-  const it = st.items.find(i => i.placed && !i.solved);
-  if (it) showResult(it, false);
+  // Alle gelegten Karten gleichzeitig umdrehen, falsche markieren, dann alle an ihren Platz
+  const open = st.items.filter(i => i.placed && !i.solved);
+  if (!open.length || st.busy) return;
+  st.busy = true; update();
+  open.forEach((it, n) => {
+    const truth = it.f.kcal < ANCHOR ? "L" : "R";
+    it.correct = it.guess === truth;
+    setTimeout(() => {
+      it.el.classList.remove("anim");
+      it.el.classList.add("flip");
+      setTimeout(() => {
+        it.solved = true;
+        it.el.className = "lc done flip " + (it.correct ? "ok" : "no");
+        it.el.innerHTML = cardHtml(it) + `<div class="mark">${it.correct ? "✓" : "✗"}</div>`;
+      }, 300);
+    }, n * 120);
+  });
+  const wait = open.length * 120 + 1500;
+  setTimeout(() => {
+    open.forEach(it => {
+      it.el.classList.remove("flip"); it.el.classList.add("anim");
+      it.stem.hidden = false; it.dot.hidden = false;
+      it.dot.style.left = (parseFloat(it.el.style.left) + CW / 2) + "px";
+    });
+    requestAnimationFrame(() => requestAnimationFrame(layout));
+    setTimeout(() => {
+      st.busy = false; update();
+    }, 2600);
+  }, wait);
 }
 
 function update() {
   const left = st.deck.length;
   const draw = $("#draw");
-  if (st.fresh) { draw.disabled = true; draw.textContent = "Karte aufdecken"; }
+  if (st.fresh || st.busy) { draw.disabled = true; draw.textContent = "Karte aufdecken"; }
   else if (left) { draw.disabled = false; draw.textContent = "Karte aufdecken"; }
   else if (!st.reserveUsed) { draw.disabled = false; draw.textContent = "Reservekarte aufdecken"; }
   else { draw.disabled = true; draw.textContent = "Alle Karten gespielt"; }
-  $("#count").textContent = left ? `noch ${left}${st.reserveUsed ? "" : " + 5 Reserve"}` : st.reserveUsed ? "" : "noch 5 Reserve";
+  $("#count").textContent = left ? (st.reserveUsed ? `noch ${left} Reserve` : `noch ${left} + 5 Reserve`) : st.reserveUsed ? "" : "noch 5 Reserve";
   const open = st.items.filter(i => i.placed && !i.solved).length;
-  $("#solve").disabled = !open;
+  $("#solve").disabled = !open || st.busy;
   $("#solve").textContent = open > 1 ? `Auflösen (${open})` : "Auflösen";
   $("#hintdrag").hidden = !st.fresh;
 }
@@ -310,7 +343,7 @@ function showIntro() {
     <ol>
       <li>Eine Karte wird aufgedeckt.</li>
       <li>Die Klasse stimmt ab: Kommt das Essen <b>vor</b> das Käsebrötchen (weniger Energie) oder <b>danach</b> (mehr Energie)?</li>
-      <li>Die Karte wird an die Linie gelegt. Mit „Auflösen“ sehen Sie, ob sie richtig liegt.</li>
+      <li>Die Karte wird an die Linie gelegt. Wenn alle Karten liegen: „Auflösen“ dreht alle Karten um.</li>
     </ol>
     <button class="go" type="button" data-a="close">Los geht's</button>
   </div>`);
